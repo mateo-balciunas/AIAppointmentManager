@@ -1,0 +1,96 @@
+# =============================================================================
+# Secrets and local confguration
+# =============================================================================
+
+
+# File with real environment variables values
+.environment
+
+# Local configuration backups
+.env.local
+.env.*.local
+
+# =============================================================================
+# Node.js / Typescript
+# =============================================================================
+
+# Dependencies
+node_modules/
+# package-lock.json
+
+#Compiled files
+dist/
+build/
+*.tsbuildinfo
+
+# Logs
+logs/
+*.logsnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test coverage
+coverage/.nyc_output/
+
+# Cache
+.npm
+.eslintcache
+.node_repl_history
+
+
+# =============================================================================
+# Docker
+# =============================================================================
+
+docker-compose.override.yml
+
+
+# =============================================================================
+# Supabase
+# =============================================================================
+
+# Local temp files from Supabase CLI (if used)
+.supabase/
+
+# =============================================================================
+# Google Cloud
+# =============================================================================
+
+
+# Service Account JSON 
+*-service-account.json
+service-account-*.json
+
+
+# =============================================================================
+# Editor and IDEs
+# =============================================================================
+
+# VSCode
+.vscode/*
+!.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# =============================================================================
+# Temp and backup
+# =============================================================================
+
+workflows-backup/
+*.n8n
+
+*.sql
+*.dump
+
+*.tmp
+*.temp
+.cache/

@@ -1,0 +1,18 @@
+{$N8N_HOST} {
+    encode gzip
+
+    # Production webhooks (published workflows)
+    handle /webhook/* {
+        reverse_proxy n8n:5678
+    }
+
+    # Test webhooks (open webhooks in editor page)
+    handle /webhook-test/* {
+        reverse_proxy n8n:5678
+    }
+
+    # n8n UI
+    handle {
+        reverse_proxy n8n:5678
+    }
+}
