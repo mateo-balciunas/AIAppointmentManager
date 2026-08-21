@@ -1,0 +1,23 @@
+{
+    "name": "agent-core",
+    "version": "1.0.0",
+    "description": "AI agent core service for AIAppointmentManager",
+    "type": "module",
+    "main": "dist/index.js",
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsx watch src/index.ts",
+        "typecheck": "tsc --noEmit"
+    },
+    "keywords": [],
+    "autho": "",
+    "license": "MIT",
+    "dependencies": {
+        "zod": "^3.24.1"
+    },
+    "devDependencies": {
+        "@types/node": "^22.10.2",
+        "tsx": "^4.19.2",
+        "typescript": "^5.7.2"
+    }
+}

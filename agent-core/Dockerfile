@@ -29,7 +29,7 @@ WORKDIR /app
 
 # Only copy production dependencies from builder
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev && cache clean --force
+RUN npm ci --omit=dev && npm cache clean --force
 
 # Copy compiled code from builder
 COPY --from=builder /build/dist ./dist
@@ -41,4 +41,4 @@ USER node
 EXPOSE 8080
 
 # Startup command
-CMD ["node", "dist/idex.js"] 
+CMD ["node", "dist/index.js"] 

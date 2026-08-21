@@ -1,0 +1,19 @@
+# Dependencias
+node_modules/
+
+# Archivos compilados
+dist/
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Entorno local
+.env
+.env.local
+
+# Editores
+.vscode/
+.idea/
+*.swp

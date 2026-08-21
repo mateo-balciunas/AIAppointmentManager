@@ -4,7 +4,7 @@
 
 
 # File with real environment variables values
-.environment
+.env
 
 # Local configuration backups
 .env.local

@@ -8,23 +8,27 @@ Google Calendar como calendario de destino.
 
 ## Stack y restricciones
 
-| Área | Elección |
-|---|---|
-| Orquestación de canales | n8n (self-hosted) |
-| Bucle del agente | Servicio TypeScript propio (`agent-core`) |
-| IA | API nativa del LLM con function calling, **agnóstica de proveedor** |
-| Validación | Zod (fuente de verdad de los tipos) |
-| Base de datos | Supabase (PostgreSQL) |
-| Calendario | Google Calendar API |
-| Despliegue | Docker Compose + Caddy |
+
+| Área                    | Elección                                                            |
+| ----------------------- | ------------------------------------------------------------------- |
+| Orquestación de canales | n8n (self-hosted)                                                   |
+| Bucle del agente        | Servicio TypeScript propio (`agent-core`)                           |
+| IA                      | API nativa del LLM con function calling, **agnóstica de proveedor** |
+| Validación              | Zod (fuente de verdad de los tipos)                                 |
+| Base de datos           | Supabase (PostgreSQL)                                               |
+| Calendario              | Google Calendar API                                                 |
+| Despliegue              | Docker Compose + Caddy                                              |
+
 
 **Restricciones estrictas:**
 
 1. Prohibido LangChain, LlamaIndex o cualquier framework de orquestación de IA.
-   Todo con la API nativa del LLM y n8n.
+  Todo con la API nativa del LLM y n8n.
 2. Sin RAG.
 3. TypeScript modular, `strict`, con manejo de errores explícito.
 4. Independencia de proveedor de LLM: Anthropic, Gemini y OpenAI intercambiables.
+
+
 
 ## Índice
 
@@ -41,6 +45,8 @@ Google Calendar como calendario de destino.
 - [Apéndice B — Errores comunes](#apéndice-b--errores-comunes)
 
 ---
+
+
 
 # Fase 0 — Diagnóstico de la v1
 
@@ -77,9 +83,11 @@ historial de tool calls, servicios con duración y horario de atención.
 
 - Tablas `professionals`, `appointments`, `audit_logs`, `idempotency_keys`.
 - RPC `fn_update_appointment`, `fn_cancel_appointment`,
-  `fn_claim_idempotency_key`, `fn_complete_idempotency_key`.
+`fn_claim_idempotency_key`, `fn_complete_idempotency_key`.
 - Workflows `Appointments - Reminder (Cron)` y `Error Handler (Global)`.
 - El patrón de Dead Letter Queue.
+
+
 
 ### Una señal a tener en cuenta
 
@@ -91,7 +99,11 @@ sale de n8n y el `Dockerfile.n8n` desaparece.
 
 ---
 
+
+
 # Fase 1 — Decisiones arquitectónicas
+
+
 
 ## 1.1 Dónde vive el bucle de tool calling
 
@@ -112,17 +124,19 @@ n8n son frágiles, cada iteración es un nodo más que depurar en una ejecución
 **Opción B — n8n es el adaptador de canales, no el cerebro.** Un servicio
 TypeScript (`agent-core`) es dueño del bucle. **Esta es la elegida.**
 
-| Responsabilidad | Dónde | Por qué |
-|---|---|---|
-| Recibir webhooks, verificar firmas | n8n | Es lo que n8n hace mejor: I/O y glue |
-| Normalizar los 3 payloads a uno canónico | n8n | Cambios de API sin recompilar |
-| Bucle LLM + tool calling + validación | `agent-core` | Necesita tipos, tests, try/catch |
-| Lógica de negocio | Postgres RPC + `agent-core` | Las RPC de la v1 ya existen |
-| Enviar respuesta al canal correcto | n8n | Switch node, trivial |
-| Crons: recordatorios, reconciliación | n8n | Ya funciona en la v1 |
 
-Beneficio inmediato: **se borra el `Dockerfile.n8n` y el
-`NODE_FUNCTION_ALLOW_EXTERNAL=zod`**. Zod corre en un servicio Node con la
+| Responsabilidad                          | Dónde                       | Por qué                              |
+| ---------------------------------------- | --------------------------- | ------------------------------------ |
+| Recibir webhooks, verificar firmas       | n8n                         | Es lo que n8n hace mejor: I/O y glue |
+| Normalizar los 3 payloads a uno canónico | n8n                         | Cambios de API sin recompilar        |
+| Bucle LLM + tool calling + validación    | `agent-core`                | Necesita tipos, tests, try/catch     |
+| Lógica de negocio                        | Postgres RPC + `agent-core` | Las RPC de la v1 ya existen          |
+| Enviar respuesta al canal correcto       | n8n                         | Switch node, trivial                 |
+| Crons: recordatorios, reconciliación     | n8n                         | Ya funciona en la v1                 |
+
+
+Beneficio inmediato: **se borra el** `Dockerfile.n8n` **y el**
+`NODE_FUNCTION_ALLOW_EXTERNAL=zod`. Zod corre en un servicio Node con la
 versión que controlas y con `npm test`. El bug que obligó a validar a mano
 desaparece por construcción.
 
@@ -170,7 +184,11 @@ disponibilidad se calcula con un query local, no con una llamada de red.
 
 ---
 
+
+
 # Fase 2 — Arquitectura y flujo de datos
+
+
 
 ## 2.1 Topología
 
@@ -216,6 +234,8 @@ disponibilidad se calcula con un query local, no con una llamada de red.
    └────────────┘
 ```
 
+
+
 ## 2.2 El viaje completo de un mensaje
 
 Ejemplo: *"Hola, quiero cita para corte mañana a las 3"* por WhatsApp.
@@ -256,7 +276,7 @@ Esta frontera es lo que hace el sistema omnicanal: `agent-core` nunca sabe de qu
 canal viene, y añadir un cuarto canal es un workflow de n8n, cero cambios en
 TypeScript.
 
-**6. `agent-core` toma el lock y carga contexto.** Si el usuario manda tres
+**6.** `agent-core` **toma el lock y carga contexto.** Si el usuario manda tres
 mensajes seguidos, tres turnos corren en paralelo sobre la misma conversación y
 se pisan el historial. Solución: `pg_advisory_xact_lock(hashtext(conversation_id))`.
 Postgres serializa los turnos de esa conversación sin bloquear a otros usuarios.
@@ -267,13 +287,13 @@ existe, crea identidad + cliente.
 **7. Construye el system prompt** con datos frescos inyectados en runtime:
 
 - Fecha y hora actual en zona del negocio, con día de la semana escrito. Sin
-  esto "mañana" es indecidible y el modelo **inventará** una fecha con total
-  confianza en lugar de admitirlo.
+esto "mañana" es indecidible y el modelo **inventará** una fecha con total
+confianza en lugar de admitirlo.
 - Zona horaria y horario de atención.
 - Catálogo de servicios con duraciones y profesionales, leídos de la BD, para que
-  no invente "corte premium".
+no invente "corte premium".
 - Políticas: nunca confirmar sin verificar, nunca inventar un hueco, pedir
-  aclaración si la fecha es ambigua.
+aclaración si la fecha es ambigua.
 
 **8. Primera llamada al LLM** vía el puerto, con `messages` + `tools`. El modelo
 no responde texto: emite un `tool_call` a `check_availability` con
@@ -286,7 +306,7 @@ LangChain, en cinco líneas.
 
 **10. Se ejecuta la tool.** `check_availability` consulta horario, citas
 existentes y bloqueos. Descubre que las 15:00 están ocupadas y devuelve
-alternativas — y junto a cada hueco emite un **`slot_token`**, una fila en BD con
+alternativas — y junto a cada hueco emite un `slot_token`, una fila en BD con
 expiración. `book_appointment` **exige** un token válido, así que "verifica antes
 de reservar" deja de ser una súplica y pasa a ser una imposibilidad estructural.
 
@@ -306,7 +326,11 @@ después** de que Postgres confirme se crea el evento en Google Calendar.
 
 ---
 
+
+
 # Fase 3 — Entorno con Docker
+
+
 
 ## 3.1 Supabase Cloud vs self-hosted
 
@@ -428,21 +452,23 @@ volumes:
 
 Detalles que muerden si se ignoran:
 
-- **`${VAR:?required}`** hace fallar `docker compose up` ruidosamente si falta una
-  variable, en vez de arrancar con `undefined` y fallar tres horas después.
-- **`N8N_ENCRYPTION_KEY` explícita.** n8n la autogenera y la guarda en el volumen;
-  si se pierde el volumen sin tener la key, **se pierden todas las credenciales**
-  sin recuperación posible. Generarla con `openssl rand -hex 32` y guardarla.
-- **`TZ: UTC` en `agent-core`** con `BUSINESS_TIMEZONE` aparte. La lógica interna
-  opera en UTC; la zona del negocio es un dato explícito. Si el contenedor va en
-  hora local, cada bug de fechas será irreproducible.
+- `${VAR:?required}` hace fallar `docker compose up` ruidosamente si falta una
+variable, en vez de arrancar con `undefined` y fallar tres horas después.
+- `N8N_ENCRYPTION_KEY` **explícita.** n8n la autogenera y la guarda en el volumen;
+si se pierde el volumen sin tener la key, **se pierden todas las credenciales**
+sin recuperación posible. Generarla con `openssl rand -hex 32` y guardarla.
+- `TZ: UTC` **en** `agent-core` con `BUSINESS_TIMEZONE` aparte. La lógica interna
+opera en UTC; la zona del negocio es un dato explícito. Si el contenedor va en
+hora local, cada bug de fechas será irreproducible.
 - **Ningún puerto publicado** en `n8n` ni `agent-core`. Solo Caddy toca internet.
-- **`AGENT_CORE_TOKEN`**: bearer compartido para que solo n8n invoque al agente.
-  Sin él, cualquier cosa en la red Docker puede gastar presupuesto de LLM.
-- **`EXECUTIONS_DATA_PRUNE`**: con tres canales el historial de ejecuciones crece
-  rápido y hace la UI inusable. 336 horas = 14 días.
-- **`N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"`** es necesario para leer `$env` en
-  Code nodes. Si `$env.META_APP_SECRET` sale `undefined`, esta es la causa.
+- `AGENT_CORE_TOKEN`: bearer compartido para que solo n8n invoque al agente.
+Sin él, cualquier cosa en la red Docker puede gastar presupuesto de LLM.
+- `EXECUTIONS_DATA_PRUNE`: con tres canales el historial de ejecuciones crece
+rápido y hace la UI inusable. 336 horas = 14 días.
+- `N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"` es necesario para leer `$env` en
+Code nodes. Si `$env.META_APP_SECRET` sale `undefined`, esta es la causa.
+
+
 
 ## 3.3 `Caddyfile`
 
@@ -461,12 +487,14 @@ Detalles que muerden si se ignoran:
 }
 ```
 
+
+
 ## 3.4 Desarrollo local: el problema del webhook
 
 Meta y Telegram necesitan una URL pública HTTPS. En local se usa un túnel
 (`cloudflared tunnel --url http://localhost:5678` o ngrok).
 
-El detalle que rompe a todo el mundo: **hay que fijar `WEBHOOK_URL` a la URL del
+El detalle que rompe a todo el mundo: **hay que fijar** `WEBHOOK_URL` **a la URL del
 túnel**. Si no, n8n muestra webhooks con `localhost` y registras una URL inútil
 en Meta.
 
@@ -475,6 +503,8 @@ webhook. Con Cloudflare, un túnel nombrado con dominio fijo evita ese ciclo; va
 la media hora de setup.
 
 ---
+
+
 
 # Fase 4 — Base de datos
 
@@ -498,6 +528,8 @@ JOIN appointments b
   && tstzrange(b.start_time, b.end_time, '[)');
 ```
 
+
+
 ## 4.1 Extensiones y tipos
 
 ```sql
@@ -508,6 +540,8 @@ DO $$ BEGIN
   CREATE TYPE channel_type AS ENUM ('whatsapp', 'instagram', 'telegram');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 ```
+
+
 
 ## 4.2 Corregir `clients` (Blocker 1)
 
@@ -690,29 +724,31 @@ CREATE INDEX IF NOT EXISTS messages_tool_names_idx
 
 Decisiones a destacar, porque no son obvias:
 
-- **`role` solo admite `user` y `assistant`.** No existe `'tool'`. Esto parece
-  raro viniendo de OpenAI, pero es lo correcto: Anthropic mete los resultados de
-  tools dentro de un mensaje de rol `user` y Gemini usa un `parts[]` propio. Si se
-  canoniza `role: 'tool'`, se está copiando la forma de OpenAI y todo adaptador
-  que no sea OpenAI tendrá que hacer ingeniería inversa. Los resultados de tools
-  son **bloques**, no roles.
-- **`blocks jsonb`** guarda el `ContentBlock[]` canónico de la Fase 5 tal cual.
-- **`tool_names text[]`** es desnormalización deliberada. Consultar dentro del
-  `jsonb` para responder "¿cuántas veces se llamó `book_appointment` esta
-  semana?" es incómodo; un array con índice GIN lo hace trivial.
+- `role` **solo admite** `user` **y** `assistant`**.** No existe `'tool'`. Esto parece
+raro viniendo de OpenAI, pero es lo correcto: Anthropic mete los resultados de
+tools dentro de un mensaje de rol `user` y Gemini usa un `parts[]` propio. Si se
+canoniza `role: 'tool'`, se está copiando la forma de OpenAI y todo adaptador
+que no sea OpenAI tendrá que hacer ingeniería inversa. Los resultados de tools
+son **bloques**, no roles.
+- `blocks jsonb` guarda el `ContentBlock[]` canónico de la Fase 5 tal cual.
+- `tool_names text[]` es desnormalización deliberada. Consultar dentro del
+`jsonb` para responder "¿cuántas veces se llamó `book_appointment` esta
+semana?" es incómodo; un array con índice GIN lo hace trivial.
 - **No se guarda el system prompt** como mensaje, porque se reconstruye en cada
-  turno con la fecha actual y el catálogo vivo. Guardarlo sería guardar datos
-  caducos. `system_prompt_hash` permite depurar qué versión se usó.
-- **`input_tokens` / `output_tokens`**, no `prompt_tokens` / `completion_tokens`,
-  que era nomenclatura de OpenAI. Anthropic usa input/output y Gemini
-  `promptTokenCount`/`candidatesTokenCount`; el nombre neutro sobrevive al cambio.
-- **`provider_raw`** guarda los blobs opacos (bloques de razonamiento con firma
-  criptográfica en Anthropic, items de reasoning cifrados en OpenAI) que **deben
-  reenviarse intactos** en las siguientes vueltas. No son canonizables. Cada
-  adaptador reenvía los suyos e ignora los ajenos.
-- **`seq bigserial`** en lugar de ordenar por `created_at`. Dos mensajes en el
-  mismo milisegundo ordenan de forma no determinista, y reconstruir el historial
-  de un agente en orden equivocado produce respuestas incoherentes.
+turno con la fecha actual y el catálogo vivo. Guardarlo sería guardar datos
+caducos. `system_prompt_hash` permite depurar qué versión se usó.
+- `input_tokens` **/** `output_tokens`, no `prompt_tokens` / `completion_tokens`,
+que era nomenclatura de OpenAI. Anthropic usa input/output y Gemini
+`promptTokenCount`/`candidatesTokenCount`; el nombre neutro sobrevive al cambio.
+- `provider_raw` guarda los blobs opacos (bloques de razonamiento con firma
+criptográfica en Anthropic, items de reasoning cifrados en OpenAI) que **deben
+reenviarse intactos** en las siguientes vueltas. No son canonizables. Cada
+adaptador reenvía los suyos e ignora los ajenos.
+- `seq bigserial` en lugar de ordenar por `created_at`. Dos mensajes en el
+mismo milisegundo ordenan de forma no determinista, y reconstruir el historial
+de un agente en orden equivocado produce respuestas incoherentes.
+
+
 
 ## 4.7 `slot_offers`: la pieza central del diseño
 
@@ -868,7 +904,11 @@ personales de conversaciones. Y la service role key **solo** debe vivir en
 
 ---
 
+
+
 # Fase 5 — TypeScript, Zod y el puerto LLM
+
+
 
 ## 5.1 Estructura
 
@@ -1035,13 +1075,13 @@ cada uno hay que implementarlo tres veces.
 
 ### Las dos decisiones de modelado que hacen que los tres proveedores encajen
 
-**1. `role` solo admite `user` y `assistant`, y `tool_result` es un bloque.**
+**1.** `role` **solo admite** `user` **y** `assistant`**, y** `tool_result` **es un bloque.**
 OpenAI tiene `role: "tool"`; Anthropic mete los resultados en un mensaje `user`;
 Gemini usa `role: "function"` en un `parts[]`. Canonizando `role: 'tool'` se copia
 la forma de OpenAI y el adaptador de Anthropic tendría que reagrupar por
 ingeniería inversa. Como bloque, **cada adaptador decide dónde colocarlo**.
 
-**2. `input` es `unknown` ya parseado, no `string`.** OpenAI devuelve los
+**2.** `input` **es** `unknown` **ya parseado, no** `string`**.** OpenAI devuelve los
 argumentos como string de JSON; Anthropic y Gemini como objeto. Canonizando
 `arguments: string` se obliga a los otros dos a re-serializar para que el bucle
 vuelva a parsear. El `JSON.parse` pertenece al adaptador de OpenAI.
@@ -1051,16 +1091,20 @@ Estas dos son exactamente el tipo de fuga que se cuela cuando se escribe el
 
 ## 5.4 Dónde fuga de verdad
 
-| Diferencia | Coste |
-|---|---|
-| `system` en el array vs. parámetro top-level | Trivial |
-| `assistant` vs. `model` como nombre de rol | Trivial |
-| `parameters` vs. `input_schema` vs. `functionDeclarations` | Trivial |
-| Nombres de campos de usage y stop reason | Trivial |
-| Gemini no tiene IDs de tool call | Medio |
-| Dialectos de JSON Schema incompatibles | Medio |
-| Bloques de razonamiento opacos | Alto, evitable |
-| Prompt caching | Alto, es coste no complejidad |
+
+| Diferencia                                                 | Coste                         |
+| ---------------------------------------------------------- | ----------------------------- |
+| `system` en el array vs. parámetro top-level               | Trivial                       |
+| `assistant` vs. `model` como nombre de rol                 | Trivial                       |
+| `parameters` vs. `input_schema` vs. `functionDeclarations` | Trivial                       |
+| Nombres de campos de usage y stop reason                   | Trivial                       |
+| Gemini no tiene IDs de tool call                           | Medio                         |
+| Dialectos de JSON Schema incompatibles                     | Medio                         |
+| Bloques de razonamiento opacos                             | Alto, evitable                |
+| Prompt caching                                             | Alto, es coste no complejidad |
+
+
+
 
 ### Gemini no tiene `tool_call_id`
 
@@ -1080,10 +1124,10 @@ cuando el usuario preguntó por el miércoles.
 Los tres aceptan "JSON Schema", pero subconjuntos distintos:
 
 - **Gemini**: subconjunto de OpenAPI 3.0. Sin `$ref`, soporte pobre de `anyOf`,
-  `enum` solo en strings, usa `nullable: true`.
-- **OpenAI en modo `strict`**: exige que *todas* las propiedades estén en
-  `required` y `additionalProperties: false`; ignora o rechaza `pattern`,
-  `minLength`, `format`. Los opcionales se expresan como unión con `null`.
+`enum` solo en strings, usa `nullable: true`.
+- **OpenAI en modo** `strict`: exige que *todas* las propiedades estén en
+`required` y `additionalProperties: false`; ignora o rechaza `pattern`,
+`minLength`, `format`. Los opcionales se expresan como unión con `null`.
 - **Anthropic**: el más permisivo, digiere JSON Schema moderno casi completo.
 
 **Este problema casi no afecta, porque Zod es el validador real, no el schema del
@@ -1096,7 +1140,7 @@ que se autocorrija.
 Regla: schemas ricos en Zod, y cada adaptador con una función `downgradeSchema()`
 que recorta lo que su proveedor no soporta (~30 líneas por adaptador).
 
-Corolario importante: **no hacer que la corrección dependa del modo `strict` de
+Corolario importante: **no hacer que la corrección dependa del modo** `strict` **de
 OpenAI.** Reduce errores y se puede activar cuando el proveedor es OpenAI, pero si
 se diseña asumiéndolo, el día que se pruebe Gemini el agente se degrada de forma
 inexplicable.
@@ -1160,13 +1204,13 @@ export const BookAppointmentArgs = z.object({
 
 Dos cosas fáciles de subestimar:
 
-- **`.strict()`** rechaza claves extra. Los LLM añaden campos que nadie pidió
-  (`"confirmed": true`). Sin `.strict()` pasan silenciosamente al resto del
-  sistema.
-- **`.describe()` no es documentación, es prompt.** El texto va al JSON Schema y
-  el modelo lo lee. `"NUNCA lo inventes"` en la descripción del `slot_token`
-  reduce alucinaciones de forma medible. Es el sitio de mayor retorno por palabra
-  escrita del proyecto.
+- `.strict()` rechaza claves extra. Los LLM añaden campos que nadie pidió
+(`"confirmed": true`). Sin `.strict()` pasan silenciosamente al resto del
+sistema.
+- `.describe()` **no es documentación, es prompt.** El texto va al JSON Schema y
+el modelo lo lee. `"NUNCA lo inventes"` en la descripción del `slot_token`
+reduce alucinaciones de forma medible. Es el sitio de mayor retorno por palabra
+escrita del proyecto.
 
 Y la conversión a `ToolSpec[]` neutro, una sola vez:
 
@@ -1304,16 +1348,18 @@ export async function runTurn(ctx: TurnContext): Promise<string> {
 
 Detalles que importan:
 
-- **`for` acotado, no `while (true)`.** Un bucle sin límite es un incidente de
-  facturación esperando a ocurrir.
-- **`Promise.all`** porque los modelos modernos piden varias tools en un turno, y
-  ejecutarlas en serie duplica la latencia.
-- **Cada `tool_call` debe recibir su `tool_result`.** Si falta uno, la API rechaza
-  la siguiente petición por historial malformado.
-- **`maxOutputTokens` explícito.** Anthropic lo exige, y darle un valor a los tres
-  es mejor que depender de defaults distintos.
+- `for` **acotado, no** `while (true)`**.** Un bucle sin límite es un incidente de
+facturación esperando a ocurrir.
+- `Promise.all` porque los modelos modernos piden varias tools en un turno, y
+ejecutarlas en serie duplica la latencia.
+- **Cada** `tool_call` **debe recibir su** `tool_result`**.** Si falta uno, la API rechaza
+la siguiente petición por historial malformado.
+- `maxOutputTokens` **explícito.** Anthropic lo exige, y darle un valor a los tres
+es mejor que depender de defaults distintos.
 - Los resultados van en un mensaje `role: 'user'` con bloques `tool_result`. Cada
-  adaptador lo traduce a su forma nativa.
+adaptador lo traduce a su forma nativa.
+
+
 
 ## 5.8 Tiempo: la fuente número uno de bugs
 
@@ -1387,6 +1433,8 @@ Sin esto, "somos agnósticos" es una afirmación sin evidencia.
 
 ---
 
+
+
 # Fase 6 — Configuración de n8n
 
 Esta fase es **idéntica** con o sin agnosticismo: n8n nunca sabe qué LLM se usa.
@@ -1397,14 +1445,16 @@ Es la mejor señal de que la separación de la Fase 1 es correcta.
 La tentación es un workflow gigante por canal. Triplica la lógica de envío y de
 errores.
 
-| Workflow | Tipo | Función |
-|---|---|---|
-| `Ingress - WhatsApp` | Webhook | Verificar firma, normalizar, dedup |
-| `Ingress - Instagram` | Webhook | Igual, envelope distinto |
-| `Ingress - Telegram` | Telegram Trigger | Nodo nativo |
-| `Agent Turn` | Sub-workflow | Llamar a `agent-core` (compartido) |
-| `Egress - Send Message` | Sub-workflow | Switch por canal, envío |
-| `Cron - Calendar Reconcile` | Schedule | Reintentar syncs pendientes |
+
+| Workflow                    | Tipo             | Función                            |
+| --------------------------- | ---------------- | ---------------------------------- |
+| `Ingress - WhatsApp`        | Webhook          | Verificar firma, normalizar, dedup |
+| `Ingress - Instagram`       | Webhook          | Igual, envelope distinto           |
+| `Ingress - Telegram`        | Telegram Trigger | Nodo nativo                        |
+| `Agent Turn`                | Sub-workflow     | Llamar a `agent-core` (compartido) |
+| `Egress - Send Message`     | Sub-workflow     | Switch por canal, envío            |
+| `Cron - Calendar Reconcile` | Schedule         | Reintentar syncs pendientes        |
+
 
 Más los workflows existentes de recordatorios y error handler global, que siguen
 funcionando sin tocarlos.
@@ -1489,12 +1539,12 @@ Preservar `message_type` importa: los usuarios mandan notas de voz, stickers y
 ubicaciones, y hay que detectarlo para responder con elegancia en vez de pasar
 `null` al LLM.
 
-**8. Switch por `message_type`.** Rama `text` → sigue al agente. Otras →
+**8. Switch por** `message_type`**.** Rama `text` → sigue al agente. Otras →
 respuesta fija ("Por ahora solo puedo leer texto, ¿me escribes tu solicitud?").
 
-**9. Execute Workflow → `Agent Turn`.**
+**9. Execute Workflow →** `Agent Turn`**.**
 
-**10. Execute Workflow → `Egress - Send Message`.**
+**10. Execute Workflow →** `Egress - Send Message`**.**
 
 ## 6.3 `Ingress - Instagram`
 
@@ -1522,24 +1572,26 @@ se sienten como alguien pensando.
 - POST, header `Authorization: Bearer {{ $env.AGENT_CORE_TOKEN }}`
 - Body: el evento canónico
 - **Timeout: 60000 ms.** El default de n8n es demasiado corto para varias tool
-  calls; los timeouts se manifiestan como fallos aleatorios difíciles de
-  diagnosticar.
+calls; los timeouts se manifiestan como fallos aleatorios difíciles de
+diagnosticar.
 - **Retry On Fail: 2 intentos, 2000 ms.** Es seguro porque la dedup por
-  `provider_message_id` hace el endpoint idempotente.
+`provider_message_id` hace el endpoint idempotente.
 - **On Error: Continue (using error output).** Conectar esa salida a un nodo Set
-  con un mensaje de disculpa y de ahí a Egress. Un fallo del LLM produce una
-  respuesta amable en lugar de silencio. El silencio es la peor UX posible: el
-  usuario reescribe, se frustra y se va.
+con un mensaje de disculpa y de ahí a Egress. Un fallo del LLM produce una
+respuesta amable en lugar de silencio. El silencio es la peor UX posible: el
+usuario reescribe, se frustra y se va.
+
+
 
 ## 6.6 `Egress - Send Message`
 
 **Switch** sobre `{{ $json.channel }}` con tres ramas:
 
 - **WhatsApp:** POST a
-  `https://graph.facebook.com/v21.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages`,
-  body `{ messaging_product: "whatsapp", to, type: "text", text: { body } }`.
+`https://graph.facebook.com/v21.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages`,
+body `{ messaging_product: "whatsapp", to, type: "text", text: { body } }`.
 - **Instagram:** POST a `/v21.0/me/messages` con
-  `{ recipient: { id }, message: { text } }`.
+`{ recipient: { id }, message: { text } }`.
 - **Telegram:** nodo nativo Telegram → Send Message.
 
 Antes del Switch, un Code node que **parta mensajes largos**: WhatsApp corta en
@@ -1549,17 +1601,21 @@ un bug, y lo es.
 ## 6.7 Ajustes de n8n que cuestan horas si se ignoran
 
 - **Publicar el workflow.** Las URLs `/webhook/` solo existen si el workflow está
-  publicado. `/webhook-test/` solo funciona con el editor abierto y **solo para
-  una ejecución**.
+publicado. `/webhook-test/` solo funciona con el editor abierto y **solo para
+una ejecución**.
 - **Concurrencia.** *Settings → Concurrency*: limitar ejecuciones simultáneas. Sin
-  límite, un pico de tráfico abre 200 turnos de LLM en paralelo. El advisory lock
-  protege la corrección de datos; el límite de concurrencia protege la factura.
+límite, un pico de tráfico abre 200 turnos de LLM en paralelo. El advisory lock
+protege la corrección de datos; el límite de concurrencia protege la factura.
 - **Error Workflow.** En los settings de cada workflow nuevo, asignar el
-  `Error Handler (Global)` de la v1. La Dead Letter Queue ya está construida.
+`Error Handler (Global)` de la v1. La Dead Letter Queue ya está construida.
 
 ---
 
+
+
 # Fase 7 — Manejo de casos extremos
+
+
 
 ## 7.1 El usuario pide una hora ya ocupada
 
@@ -1567,11 +1623,11 @@ No se le pide a la IA que verifique primero: **se le impone.** Tres capas, de la
 más débil a la más fuerte:
 
 1. **Prompt** (blanda, ~85% efectiva): "NUNCA confirmes una cita sin llamar antes
-   a `check_availability`."
+  a `check_availability`."
 2. **Diseño del schema** (media): `book_appointment` requiere `slot_token`, y su
-   `.describe()` dice explícitamente que solo viene de `check_availability`.
+  `.describe()` dice explícitamente que solo viene de `check_availability`.
 3. **Imposición en BD** (dura, 100%): `fn_book_appointment_v2` valida el token
-   contra `slot_offers`. Sin token válido, no hay cita.
+  contra `slot_offers`. Sin token válido, no hay cita.
 
 Solo la capa 3 es una garantía. Las otras dos reducen reintentos, pero la
 corrección no depende de que el modelo se porte bien.
@@ -1653,11 +1709,11 @@ Una lista vacía sin explicación hace que el modelo alucine una razón.
 "Hola" / "quiero cita" / "mañana 3pm" en 4 segundos, tres webhooks concurrentes.
 
 - **Advisory lock** (`pg_advisory_xact_lock(hashtext(conversation_id))`):
-  serializa los turnos. El segundo espera y ve el historial completo.
+serializa los turnos. El segundo espera y ve el historial completo.
 - **Debounce** (opcional, muy recomendable): al recibir un mensaje, esperar 2-3
-  segundos por si llegan más y procesar el texto concatenado. Reduce coste de LLM
-  y produce respuestas mucho mejores, porque el agente ve la intención completa en
-  vez de reaccionar a "Hola" y luego contradecirse.
+segundos por si llegan más y procesar el texto concatenado. Reduce coste de LLM
+y produce respuestas mucho mejores, porque el agente ve la intención completa en
+vez de reaccionar a "Hola" y luego contradecirse.
 
 Sin esto el agente parece esquizofrénico: responde tres veces con información
 inconsistente.
@@ -1683,7 +1739,7 @@ Comportamiento correcto sin código especial.
 ## 7.7 Cancelar o reprogramar: verificación de identidad
 
 Riesgo real: el usuario A no debe poder cancelar la cita del usuario B. **Nunca
-aceptar un `appointment_id` que venga del LLM sin verificar propiedad.**
+aceptar un** `appointment_id` **que venga del LLM sin verificar propiedad.**
 
 Patrón: `list_my_appointments` filtra por el `client_id` derivado de la
 **identidad del canal** (no de nada que diga el modelo) y devuelve
@@ -1714,7 +1770,7 @@ historial, **no se puede cambiar de proveedor a media conversación**. En ese ca
 reintentar con el mismo proveedor y backoff, y cambiar solo si el turno arranca
 limpio.
 
-**`stopReason: 'content_filtered'`.** Los tres proveedores tienen filtros de
+`stopReason: 'content_filtered'`**.** Los tres proveedores tienen filtros de
 seguridad con umbrales distintos, y un usuario enfadado puede dispararlos.
 Tratarlo como handoff a humano, no como error: no reintentar, porque volverá a
 filtrarse.
@@ -1723,13 +1779,15 @@ filtrarse.
 
 - `MAX_TOOL_ITERATIONS = 6`, con degradación elegante y flag para humano.
 - Límite de historial (20 vueltas). Sin esto, una conversación larga crece hasta
-  el límite de contexto y empieza a fallar de golpe.
+el límite de contexto y empieza a fallar de golpe.
 - **Rate limit por identidad**: N mensajes por hora. Un usuario aburrido (o un
-  script) puede quemar cientos de dólares en una noche.
-  `channel_identities.is_blocked` es el botón de pánico.
+script) puede quemar cientos de dólares en una noche.
+`channel_identities.is_blocked` es el botón de pánico.
 - Registrar `input_tokens`/`output_tokens` desde el día 1. Sin esto no se puede
-  responder "¿cuánto cuesta atender un cliente?", que es la primera pregunta del
-  negocio.
+responder "¿cuánto cuesta atender un cliente?", que es la primera pregunta del
+negocio.
+
+
 
 ## 7.11 Handoff a humano
 
@@ -1757,28 +1815,32 @@ Esto se planifica antes, no después: la aprobación de plantillas tarda días.
 
 ---
 
+
+
 # Fase 8 — Orden de implementación
 
 No construir por capas horizontales (toda la BD, luego todo el TS, luego todo
 n8n). Construir un **camino vertical delgado** y ensancharlo. Así hay algo
 funcionando el día 2 y no el día 20.
 
-| # | Paso | Criterio de "hecho" |
-|---|---|---|
-| 1 | Migración `0006` | Dos inserts solapados: el segundo falla |
-| 2 | Semilla: servicios, 1 profesional, `business_hours` | Query de disponibilidad devuelve huecos |
-| 3 | `agent-core` mínimo: `/health`, config, pool | Contenedor healthy en `docker compose ps` |
-| 4 | `check_availability` sola, sin LLM | `curl` devuelve huecos y crea `slot_offers` |
-| 5 | `port.ts` + `fake.ts` + tests del bucle | Tests verdes: slot ocupado, token expirado, args inválidos, `SLOT_CONFLICT` |
-| 6 | Adaptador de Anthropic | Primera conversación real por `curl` |
-| 7 | Adaptador de Gemini + contract tests | Los mismos tests pasan con ambos |
-| 8 | `book_appointment` + slot tokens | Reserva end-to-end sin canales |
-| 9 | Telegram (ingress + egress) | **Primer bot real funcionando** |
-| 10 | Google Calendar + cron de reconciliación | Evento aparece; sobrevive a Google caído |
-| 11 | WhatsApp (App Review, plantillas) | Mensaje de prueba enviado y recibido |
-| 12 | Instagram | Idem, con ecos filtrados |
-| 13 | Resto de tools: reprogramar, cancelar, listar | Verificación de identidad probada |
-| 14 | Endurecer: rate limits, handoff, debounce, observabilidad | Dashboard de coste por conversación |
+
+| #   | Paso                                                      | Criterio de "hecho"                                                         |
+| --- | --------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 1   | Migración `0006`                                          | Dos inserts solapados: el segundo falla                                     |
+| 2   | Semilla: servicios, 1 profesional, `business_hours`       | Query de disponibilidad devuelve huecos                                     |
+| 3   | `agent-core` mínimo: `/health`, config, pool              | Contenedor healthy en `docker compose ps`                                   |
+| 4   | `check_availability` sola, sin LLM                        | `curl` devuelve huecos y crea `slot_offers`                                 |
+| 5   | `port.ts` + `fake.ts` + tests del bucle                   | Tests verdes: slot ocupado, token expirado, args inválidos, `SLOT_CONFLICT` |
+| 6   | Adaptador de Anthropic                                    | Primera conversación real por `curl`                                        |
+| 7   | Adaptador de Gemini + contract tests                      | Los mismos tests pasan con ambos                                            |
+| 8   | `book_appointment` + slot tokens                          | Reserva end-to-end sin canales                                              |
+| 9   | Telegram (ingress + egress)                               | **Primer bot real funcionando**                                             |
+| 10  | Google Calendar + cron de reconciliación                  | Evento aparece; sobrevive a Google caído                                    |
+| 11  | WhatsApp (App Review, plantillas)                         | Mensaje de prueba enviado y recibido                                        |
+| 12  | Instagram                                                 | Idem, con ecos filtrados                                                    |
+| 13  | Resto de tools: reprogramar, cancelar, listar             | Verificación de identidad probada                                           |
+| 14  | Endurecer: rate limits, handoff, debounce, observabilidad | Dashboard de coste por conversación                                         |
+
 
 Dos hitos merecen comentario:
 
@@ -1810,33 +1872,39 @@ fecha ambigua, fuera de horario, servicio inexistente.
 
 ---
 
+
+
 # Apéndice A — Inventario de secretos
 
-| Variable | Origen | Notas |
-|---|---|---|
-| `N8N_ENCRYPTION_KEY` | `openssl rand -hex 32` | **Perderla = perder todas las credenciales de n8n** |
-| `N8N_JWT_SECRET` | `openssl rand -hex 32` | |
-| `N8N_DB_PASSWORD` | `openssl rand -hex 24` | |
-| `AGENT_CORE_TOKEN` | `openssl rand -hex 32` | Compartido n8n ↔ agent-core |
-| `SUPABASE_URL` | Supabase → Settings → API | |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings → API | Solo en `agent-core`, nunca en n8n |
-| `SUPABASE_DB_URL` | Supabase → Settings → Database | Para advisory locks vía `pg` |
-| `ANTHROPIC_API_KEY` | console.anthropic.com | |
-| `GEMINI_API_KEY` | aistudio.google.com | |
-| `OPENAI_API_KEY` | platform.openai.com | |
-| `META_APP_SECRET` | Meta App → Settings → Basic | Para el HMAC |
-| `META_VERIFY_TOKEN` | Inventado | Se pega igual en el dashboard de Meta |
-| `WHATSAPP_PHONE_NUMBER_ID` | Meta → WhatsApp → API Setup | |
-| `WHATSAPP_TOKEN` | Meta → System User | Usar token permanente, no el de 24h |
-| `IG_PAGE_TOKEN` | Meta → Instagram | |
-| `TELEGRAM_BOT_TOKEN` | @BotFather | |
-| `TELEGRAM_WEBHOOK_SECRET` | `openssl rand -hex 32` | Se pasa en `setWebhook` |
-| `GOOGLE_SA_JSON` | GCP → Service Account | JSON en base64 |
-| `GOOGLE_CALENDAR_ID` | Google Calendar → Settings | Compartir el calendario con la SA |
+
+| Variable                    | Origen                         | Notas                                               |
+| --------------------------- | ------------------------------ | --------------------------------------------------- |
+| `N8N_ENCRYPTION_KEY`        | `openssl rand -hex 32`         | **Perderla = perder todas las credenciales de n8n** |
+| `N8N_JWT_SECRET`            | `openssl rand -hex 32`         |                                                     |
+| `N8N_DB_PASSWORD`           | `openssl rand -hex 24`         |                                                     |
+| `AGENT_CORE_TOKEN`          | `openssl rand -hex 32`         | Compartido n8n ↔ agent-core                         |
+| `SUPABASE_URL`              | Supabase → Settings → API      |                                                     |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings → API      | Solo en `agent-core`, nunca en n8n                  |
+| `SUPABASE_DB_URL`           | Supabase → Settings → Database | Para advisory locks vía `pg`                        |
+| `ANTHROPIC_API_KEY`         | console.anthropic.com          |                                                     |
+| `GEMINI_API_KEY`            | aistudio.google.com            |                                                     |
+| `OPENAI_API_KEY`            | platform.openai.com            |                                                     |
+| `META_APP_SECRET`           | Meta App → Settings → Basic    | Para el HMAC                                        |
+| `META_VERIFY_TOKEN`         | Inventado                      | Se pega igual en el dashboard de Meta               |
+| `WHATSAPP_PHONE_NUMBER_ID`  | Meta → WhatsApp → API Setup    |                                                     |
+| `WHATSAPP_TOKEN`            | Meta → System User             | Usar token permanente, no el de 24h                 |
+| `IG_PAGE_TOKEN`             | Meta → Instagram               |                                                     |
+| `TELEGRAM_BOT_TOKEN`        | @BotFather                     |                                                     |
+| `TELEGRAM_WEBHOOK_SECRET`   | `openssl rand -hex 32`         | Se pasa en `setWebhook`                             |
+| `GOOGLE_SA_JSON`            | GCP → Service Account          | JSON en base64                                      |
+| `GOOGLE_CALENDAR_ID`        | Google Calendar → Settings     | Compartir el calendario con la SA                   |
+
 
 `.env` nunca se commitea. Mantener un `.env.example` con las claves y sin valores.
 
 ---
+
+
 
 # Apéndice B — Errores comunes
 
@@ -1849,7 +1917,7 @@ del body crudo. Activar Raw Body en el nodo Webhook.
 **El bot de Instagram se responde a sí mismo en bucle.** Falta filtrar
 `message.is_echo`.
 
-**`$env.X` es `undefined` en un Code node.** Falta
+`$env.X` **es** `undefined` **en un Code node.** Falta
 `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`.
 
 **Webhook 404 aunque el workflow existe.** No está publicado, o se está usando la
@@ -1859,7 +1927,7 @@ Test URL sin el editor abierto.
 Gemini está desemparejando `functionCall`/`functionResponse` por el problema de
 IDs (Fase 5.4).
 
-**El `ALTER TABLE` de la constraint de exclusión falla.** Hay solapamientos
+**El** `ALTER TABLE` **de la constraint de exclusión falla.** Hay solapamientos
 preexistentes; ejecutar el query de la Fase 4.0.
 
 **El agente inventa fechas.** Falta `humanNow()` en el system prompt.
