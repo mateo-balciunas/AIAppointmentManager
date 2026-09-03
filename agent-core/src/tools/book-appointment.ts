@@ -8,7 +8,7 @@ import { getSupabaseClient, zodSchemaToJsonSchema, formatSupabaseError } from '.
 const bookAppointmentInputSchema = z.object({
   slot_token: z
     .string()
-    .uuid('Slot token must be a valid UUID')
+    .min(1, 'Slot token is required')
     .describe('Token obtained from checkAvailability (valid for 5 minutes)'),
   client_name: z
     .string()

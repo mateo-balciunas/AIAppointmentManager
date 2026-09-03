@@ -1,4 +1,4 @@
-import type { LlmProvider } from './port.js';
+import type { LlmProvider, ProviderId } from './port.js';
 import { FakeProvider } from './providers/fake.js';
 import { OpenAIProvider } from './providers/openai.js';
 
@@ -7,29 +7,39 @@ import { OpenAIProvider } from './providers/openai.js';
  * Allows registering and retrieving providers by name
  */
 class ProviderRegistry {
-  private providers = new Map<string, LlmProvider>();
+  private providers = new Map<ProviderId, () => LlmProvider>();
+  private instances = new Map<ProviderId, LlmProvider>();
 
   /**
-   * Registers a new provider in the registry
+   * Registers a new provider factory in the registry
    */
-  register(provider: LlmProvider): void {
-    if (this.providers.has(provider.id)) {
-      throw new Error(`Provider "${provider.id}" already registered`);
+  register(id: ProviderId, factory: () => LlmProvider): void {
+    if (this.providers.has(id)) {
+      throw new Error(`Provider "${id}" already registered`);
     }
-    this.providers.set(provider.id, provider);
+    this.providers.set(id, factory);
   }
 
   /**
-   * Gets a provider by name
+   * Gets a provider by name (lazy instantiation)
    * Throws error if does not exist
    */
   get(name: string): LlmProvider {
-    const provider = this.providers.get(name);
-    if (!provider) {
+    // Check if already instantiated
+    if (this.instances.has(name as ProviderId)) {
+      return this.instances.get(name as ProviderId)!;
+    }
+
+    // Get factory and instantiate
+    const factory = this.providers.get(name as ProviderId);
+    if (!factory) {
       const available = Array.from(this.providers.keys()).join(', ');
       throw new Error(`Provider "${name}" not found. Available providers: ${available}`);
     }
-    return provider;
+
+    const instance = factory();
+    this.instances.set(name as ProviderId, instance);
+    return instance;
   }
 
   /**
@@ -43,13 +53,13 @@ class ProviderRegistry {
 // Singleton instance of the registry
 export const registry = new ProviderRegistry();
 
-// Register available providers
-registry.register(new FakeProvider());
-registry.register(new OpenAIProvider());
+// Register available provider factories (lazy instantiation)
+registry.register('fake', () => new FakeProvider());
+registry.register('openai', () => new OpenAIProvider());
 
 // TODO: Register other providers when implemented
-// registry.register(new AnthropicProvider());
-// registry.register(new GeminiProvider());
+// registry.register('anthropic', () => new AnthropicProvider());
+// registry.register('gemini', () => new GeminiProvider());
 
 /**
  * Gets the configured provider for the LLM_PROVIDER env var
