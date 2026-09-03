@@ -12,7 +12,7 @@ export type ToolExecutionResult<T> =
 /**
  * Generic contract for any tool implementation
  * @template TInput - Input arguments type (inferred from Zod schema)
- * @template TOuptut - Result type 
+ * @template TOutput - Result type 
  */
 export interface Tool<TInput = unknown, TOutput = unknown> {
     /**Unique tool name (ej: "checkAvailability") */
@@ -30,7 +30,7 @@ export interface Tool<TInput = unknown, TOutput = unknown> {
      * @param input - Validated arguments by inputSchema
      * @returns Success or error results
      */
-    execute(input: TInput): Promise<ToolExecutionResult<TOuput>>;
+    execute(input: TInput): Promise<ToolExecutionResult<TOutput>>;
 
     /**
      * Transforms the Zod schema into a JSON Schema to send to the LLM

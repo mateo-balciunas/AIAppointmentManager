@@ -8,7 +8,7 @@ import type {
 } from '../port.js';
 
 /**
- * OpenAI API types
+ * OpenAI API types (subset we need)
  */
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -18,11 +18,11 @@ interface OpenAIMessage {
     type: 'function';
     function: {
       name: string;
-      arguments: string;
+      arguments: string; // JSON string
     };
   }>;
-  tool_call_id?: string;
-  name?: string;
+  tool_call_id?: string; // For tool result messages
+  name?: string; // Tool name for tool result messages
 }
 
 interface OpenAITool {
@@ -30,7 +30,7 @@ interface OpenAITool {
   function: {
     name: string;
     description: string;
-    parameters: Record<string, unknown>;
+    parameters: Record<string, unknown>; // JSON Schema
   };
 }
 
@@ -74,7 +74,7 @@ interface OpenAICompletionResponse {
  * OpenAI-compatible provider (works with OpenAI and Groq)
  */
 export class OpenAIProvider implements LlmProvider {
-  readonly name = 'openai';
+  readonly id = 'openai' as const;
   private apiKey: string;
   private baseUrl: string;
   private model: string;
@@ -89,20 +89,20 @@ export class OpenAIProvider implements LlmProvider {
     }
   }
 
-  async complete(request: CompletionRequest): Promise<CompletionResponse> {
+  async complete(req: CompletionRequest, signal: AbortSignal): Promise<CompletionResponse> {
     // Convert canonical messages to OpenAI format
-    const openaiMessages = this.toOpenAIMessages(request.messages, request.system_prompt);
+    const openaiMessages = this.toOpenAIMessages(req.messages, req.system);
 
     // Convert canonical tools to OpenAI format
-    const openaiTools = request.tools?.map((tool) => this.toOpenAITool(tool));
+    const openaiTools = req.tools.map((tool) => this.toOpenAITool(tool));
 
     // Build OpenAI request
     const openaiRequest: OpenAICompletionRequest = {
       model: this.model,
       messages: openaiMessages,
-      tools: openaiTools && openaiTools.length > 0 ? openaiTools : undefined,
-      temperature: 0.7,
-      max_tokens: 2000,
+      tools: openaiTools.length > 0 ? openaiTools : undefined,
+      temperature: req.temperature ?? 0.7,
+      max_tokens: req.maxOutputTokens,
     };
 
     // Call OpenAI API
@@ -113,6 +113,7 @@ export class OpenAIProvider implements LlmProvider {
         'Authorization': `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(openaiRequest),
+      signal,
     });
 
     if (!response.ok) {
@@ -128,24 +129,22 @@ export class OpenAIProvider implements LlmProvider {
 
   private toOpenAIMessages(
     messages: CanonicalMessage[],
-    systemPrompt?: string
+    systemPrompt: string
   ): OpenAIMessage[] {
     const result: OpenAIMessage[] = [];
 
-    // Add system prompt if provided
-    if (systemPrompt) {
-      result.push({
-        role: 'system',
-        content: systemPrompt,
-      });
-    }
+    // Add system prompt as first message
+    result.push({
+      role: 'system',
+      content: systemPrompt,
+    });
 
     // Convert canonical messages to OpenAI format
     for (const msg of messages) {
       if (msg.role === 'user') {
         // User message: extract text and tool results
-        const textBlocks = msg.content.filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text');
-        const toolResultBlocks = msg.content.filter((b): b is Extract<ContentBlock, { type: 'tool_result' }> => b.type === 'tool_result');
+        const textBlocks = msg.blocks.filter((b): b is Extract<ContentBlock, { kind: 'text' }> => b.kind === 'text');
+        const toolResultBlocks = msg.blocks.filter((b): b is Extract<ContentBlock, { kind: 'tool_result' }> => b.kind === 'tool_result');
 
         // If has text, add as user message
         if (textBlocks.length > 0) {
@@ -159,14 +158,16 @@ export class OpenAIProvider implements LlmProvider {
         for (const toolResult of toolResultBlocks) {
           result.push({
             role: 'tool',
-            tool_call_id: toolResult.tool_call_id,
-            content: toolResult.content,
+            tool_call_id: toolResult.callId,
+            content: toolResult.isError
+              ? JSON.stringify({ error: toolResult.output })
+              : JSON.stringify(toolResult.output),
           });
         }
       } else if (msg.role === 'assistant') {
         // Assistant message: extract text and tool calls
-        const textBlocks = msg.content.filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text');
-        const toolCallBlocks = msg.content.filter((b): b is Extract<ContentBlock, { type: 'tool_call' }> => b.type === 'tool_call');
+        const textBlocks = msg.blocks.filter((b): b is Extract<ContentBlock, { kind: 'text' }> => b.kind === 'text');
+        const toolCallBlocks = msg.blocks.filter((b): b is Extract<ContentBlock, { kind: 'tool_call' }> => b.kind === 'tool_call');
 
         const openaiMsg: OpenAIMessage = {
           role: 'assistant',
@@ -175,10 +176,10 @@ export class OpenAIProvider implements LlmProvider {
 
         if (toolCallBlocks.length > 0) {
           openaiMsg.tool_calls = toolCallBlocks.map((tc) => ({
-            id: tc.id,
+            id: tc.callId,
             type: 'function' as const,
             function: {
-              name: tc.name,
+              name: tc.toolName,
               arguments: JSON.stringify(tc.input),
             },
           }));
@@ -197,7 +198,7 @@ export class OpenAIProvider implements LlmProvider {
       function: {
         name: tool.name,
         description: tool.description,
-        parameters: tool.input_schema,
+        parameters: tool.inputSchema,
       },
     };
   }
@@ -208,12 +209,12 @@ export class OpenAIProvider implements LlmProvider {
       throw new Error('OpenAI returned no choices');
     }
 
-    const content: ContentBlock[] = [];
+    const blocks: ContentBlock[] = [];
 
     // Add text content if present
     if (choice.message.content) {
-      content.push({
-        type: 'text',
+      blocks.push({
+        kind: 'text',
         text: choice.message.content,
       });
     }
@@ -221,30 +222,36 @@ export class OpenAIProvider implements LlmProvider {
     // Add tool calls if present
     if (choice.message.tool_calls) {
       for (const tc of choice.message.tool_calls) {
-        content.push({
-          type: 'tool_call',
-          id: tc.id,
-          name: tc.function.name,
+        blocks.push({
+          kind: 'tool_call',
+          callId: tc.id,
+          toolName: tc.function.name,
           input: JSON.parse(tc.function.arguments),
         });
       }
     }
 
     // Determine stop reason
-    let stopReason: CompletionResponse['stop_reason'] = 'end_turn';
+    let stopReason: CompletionResponse['stopReason'] = 'end_turn';
     if (choice.finish_reason === 'tool_calls') {
-      stopReason = 'tool_use';
+      stopReason = 'tool_call';
     } else if (choice.finish_reason === 'length') {
       stopReason = 'max_tokens';
+    } else if (choice.finish_reason === 'content_filter') {
+      stopReason = 'content_filtered';
     }
 
     return {
-      role: 'assistant',
-      content,
-      stop_reason: stopReason,
+      message: [
+        {
+          role: 'assistant',
+          blocks,
+        },
+      ],
+      stopReason,
       usage: {
-        input_tokens: openaiResponse.usage.prompt_tokens,
-        output_tokens: openaiResponse.usage.completion_tokens,
+        inputTokens: openaiResponse.usage.prompt_tokens,
+        outputTokens: openaiResponse.usage.completion_tokens,
       },
     };
   }

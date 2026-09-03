@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { zodToJsonSchema as zodToJsonSchemaLib } from 'zod-to-json-schema';
 
 /**
  * Singleton supabase client, shared across all tools
@@ -36,10 +36,7 @@ export function getSupabaseClient(): SupabaseClient {
  * @returns JSON Schema compatible with OpenAI/Anthropic/etc.
  */
 export function zodSchemaToJsonSchema(schema: z.ZodType): Record<string, unknown> {
-    const jsonSchema = zodSchemaToJsonSchema(schema, {
-        name: undefined,
-        $refStrategy: 'none',
-    });
+    const jsonSchema = zodToJsonSchemaLib(schema);
 
     // Only extracts the schema from the object, removing the metadata
     if (typeof jsonSchema === 'object' && jsonSchema !== null && 'definitions' in jsonSchema) {
