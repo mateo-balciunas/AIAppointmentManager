@@ -104,7 +104,7 @@ export async function runAgentTurn(
     ...conversationHistory,
     {
       role: 'user',
-      content: [{ type: 'text', text: userMessage }],
+      blocks: [{ kind: 'text', text: userMessage }],
     },
   ];
 
@@ -137,54 +137,59 @@ export async function runAgentTurn(
     iterations++;
 
     // Call LLM
-    const response = await llm.complete({
-      messages,
-      tools,
-      system_prompt: finalSystemPrompt,
-    });
+    const abortController = new AbortController();
+    const response = await llm.complete(
+      {
+        system: finalSystemPrompt,
+        messages,
+        tools,
+        maxOutputTokens: 2000,
+        temperature: 0.7,
+      },
+      abortController.signal
+    );
 
     // Add assistant response to history
-    messages.push({
-      role: 'assistant',
-      content: response.content,
-    });
+    for (const msg of response.message) {
+      messages.push(msg);
+    }
 
     // Check if the response contains tool calls
-    const toolCalls = response.content.filter(
-      (block): block is Extract<ContentBlock, { type: 'tool_call' }> =>
-        block.type === 'tool_call'
+    const toolCalls = response.message.flatMap((msg) =>
+      msg.blocks.filter((b): b is Extract<ContentBlock, { kind: 'tool_call' }> => b.kind === 'tool_call')
     );
 
     // If no tool calls, extract text and finish
     if (toolCalls.length === 0) {
-      const textBlocks = response.content.filter(
-        (block): block is Extract<ContentBlock, { type: 'text' }> =>
-          block.type === 'text'
+      const textBlocks = response.message.flatMap((msg) =>
+        msg.blocks.filter((b): b is Extract<ContentBlock, { kind: 'text' }> => b.kind === 'text')
       );
       finalMessage = textBlocks.map((block) => block.text).join('\n');
       break;
     }
 
     // Execute all tool calls
-    const toolResults: ContentBlock[] = [];
+    const toolResultBlocks: ContentBlock[] = [];
 
     for (const toolCall of toolCalls) {
       try {
         // Get tool from registry
-        const tool = toolRegistry.get(toolCall.name);
+        const tool = toolRegistry.get(toolCall.toolName);
 
         // Validate input with Zod
         const parseResult = tool.inputSchema.safeParse(toolCall.input);
 
         if (!parseResult.success) {
           // Validation failed: return error to LLM
-          toolResults.push({
-            type: 'tool_result',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({
+          toolResultBlocks.push({
+            kind: 'tool_result',
+            callId: toolCall.callId,
+            toolName: toolCall.toolName,
+            output: {
               error: 'Invalid arguments',
               details: parseResult.error.format(),
-            }),
+            },
+            isError: true,
           });
           continue;
         }
@@ -194,29 +199,33 @@ export async function runAgentTurn(
 
         if (executionResult.success) {
           // Success: return result to LLM
-          toolResults.push({
-            type: 'tool_result',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify(executionResult.result),
+          toolResultBlocks.push({
+            kind: 'tool_result',
+            callId: toolCall.callId,
+            toolName: toolCall.toolName,
+            output: executionResult.result,
+            isError: false,
           });
         } else {
           // Failed: return error to LLM
-          toolResults.push({
-            type: 'tool_result',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify({
-              error: executionResult.error,
-            }),
+          toolResultBlocks.push({
+            kind: 'tool_result',
+            callId: toolCall.callId,
+            toolName: toolCall.toolName,
+            output: { error: executionResult.error },
+            isError: true,
           });
         }
       } catch (error) {
         // Unexpected error
-        toolResults.push({
-          type: 'tool_result',
-          tool_call_id: toolCall.id,
-          content: JSON.stringify({
+        toolResultBlocks.push({
+          kind: 'tool_result',
+          callId: toolCall.callId,
+          toolName: toolCall.toolName,
+          output: {
             error: error instanceof Error ? error.message : 'Unknown error',
-          }),
+          },
+          isError: true,
         });
       }
     }
@@ -224,7 +233,7 @@ export async function runAgentTurn(
     // Add tool results to message history
     messages.push({
       role: 'user',
-      content: toolResults,
+      blocks: toolResultBlocks,
     });
   }
 

@@ -1,94 +1,103 @@
 import type {
-    LlmProvider,
-    CompletionRequest,
-    CompletionResponse,
-    ContentBlock,
+  LlmProvider,
+  CompletionRequest,
+  CompletionResponse,
+  ContentBlock,
 } from '../port.js';
 
 /**
- * FakeProvider: simulated LLM provider for testing
- * Returns predictable responses based on simple keywords
+ * FakeProvider: simulated LLM provider for testing.
+ * Returns predictable responses based on simple keywords.
+ * Does NOT make real HTTP calls.
  */
 export class FakeProvider implements LlmProvider {
-    readonly name = 'fake';
+  readonly id = 'fake' as const;
 
-    async complete(request: CompletionRequest): Promise<CompletionResponse> {
-        const lastMessage = request.messages[request.messages.length - 1];
+  async complete(req: CompletionRequest, signal: AbortSignal): Promise<CompletionResponse> {
+    const lastMessage = req.messages[req.messages.length - 1];
 
-        //Extract text from last user message
-        let userText = '';
-        if (lastMessage?.role === 'user') {
-            for (const block of lastMessage.content) {
-                if (block.type === 'text') {
-                    userText += block.text + ' ';
-                }
-            }
+    // Extract text from last user message
+    let userText = '';
+    if (lastMessage?.role === 'user') {
+      for (const block of lastMessage.blocks) {
+        if (block.kind === 'text') {
+          userText += block.text + ' ';
         }
-
-        userText = userText.toLowerCase().trim();
-
-        //Simple logic based on keywords
-        if (userText.includes('disponibilidad') || userText.includes('horario')) {
-            //Simulate tool call for checkAvailability
-            return this.createToolCallResponse(
-                'checkAvailability',
-                {
-                    date: '2026-08-25',
-                    service_slug: 'corte-cabello',
-                },
-                'call_fake_check_001'
-            );
-        }
-
-        if (userText.includes('agender') || userText.includes('reservar') || userText.includes('confirmar')) {
-            //Simulate tool call for bookAppointment
-            return this.crateToolCallResponse(
-                'bookAppointment',
-                {
-                    slot_token: 'fake-token-abc123',
-                    client_name: 'Juan Perez',
-                    client_phone: '+34600000000',
-                },
-                'call_fake_book_001'
-            );
-        }
-
-        //Default text response 
-        return {
-            role: 'assistant',
-            content: [
-                {
-                    type: 'text',
-                    text: '¡Hola! Soy un asistente simulado para pruebas. ¿En qué puedo ayudarte hoy? (Intenta decir "disponibilidad" 0 "agendar").)',
-                },
-            ],
-            stop_reason: 'end_turn',
-            usage: { input_tokens: 10, output_tokens: 20 },
-        };
+      }
     }
 
-    /**
-     * Helper method to create tool call responses
-     */
-    private createToolCallResponse(
-        toolName: string,
-        toolInput: Record<string, unknown>,
-        toolCallId: string
-    ): CompletionResponse {
-        const content: ContentBlock[] = [
+    userText = userText.toLowerCase().trim();
+
+    // Simple keyword-based logic
+    if (userText.includes('disponibilidad') || userText.includes('horario')) {
+      // Simulate tool call for checkAvailability
+      return this.createToolCallResponse(
+        'checkAvailability',
+        {
+          date: '2026-08-25',
+          service_slug: 'corte-cabello',
+        },
+        'call_fake_check_001'
+      );
+    }
+
+    if (userText.includes('agendar') || userText.includes('reservar') || userText.includes('confirmar')) {
+      // Simulate tool call for bookAppointment
+      return this.createToolCallResponse(
+        'bookAppointment',
+        {
+          slot_token: 'fake-token-abc123',
+          client_name: 'Juan Pérez',
+          client_phone: '+34600000000',
+        },
+        'call_fake_book_001'
+      );
+    }
+
+    // Default text response
+    return {
+      message: [
+        {
+          role: 'assistant',
+          blocks: [
             {
-                type: 'tool_call',
-                id: toolCallId,
-                name: toolName,
-                input: toolInput,
+              kind: 'text',
+              text: '¡Hola! Soy un asistente simulado. ¿En qué puedo ayudarte hoy? (Intenta decir "disponibilidad" o "agendar").',
             },
-        ];
+          ],
+        },
+      ],
+      stopReason: 'end_turn',
+      usage: { inputTokens: 10, outputTokens: 20 },
+    };
+  }
 
-        return {
-            role: 'assistant',
-            content,
-            stop_reason: 'tool_use',
-            usage: { inpit_tokens: 10, outuput_tokens: 15},
-        };
-    }
+  /**
+   * Helper to create responses with tool_call
+   */
+  private createToolCallResponse(
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    callId: string
+  ): CompletionResponse {
+    const blocks: ContentBlock[] = [
+      {
+        kind: 'tool_call',
+        callId,
+        toolName,
+        input: toolInput,
+      },
+    ];
+
+    return {
+      message: [
+        {
+          role: 'assistant',
+          blocks,
+        },
+      ],
+      stopReason: 'tool_call',
+      usage: { inputTokens: 10, outputTokens: 15 },
+    };
+  }
 }
