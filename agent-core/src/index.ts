@@ -1,3 +1,12 @@
+import { config } from 'dotenv';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+// Load .env from project root (one level up from agent-core/)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+config({ path: join(__dirname, '../../.env') });
+
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { runAgentTurn } from './llm/loop.js';
 import type { CanonicalMessage } from './llm/port.js';

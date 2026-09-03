@@ -37,7 +37,7 @@ interface OpenAITool {
 interface OpenAICompletionRequest {
   model: string;
   messages: OpenAIMessage[];
-  tools?: OpenAITool[];
+  tools?: OpenAITool[] | undefined;
   temperature?: number;
   max_tokens?: number;
 }

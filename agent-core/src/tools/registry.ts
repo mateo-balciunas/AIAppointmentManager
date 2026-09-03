@@ -57,11 +57,11 @@ class ToolRegistry {
      * Convert all registered tools to ToolSpec format for the LLM
      * This is what gets sent in completion request
      */
-    toToolSpecs(): ToolSpec[] {
+    toToolSpecs(): Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> {
         return this.getAll().map((tool) => ({
             name: tool.name,
             description: tool.description,
-            input_schema: tool.toJsonSchema(),
+            inputSchema: tool.toJsonSchema(),
         }));
     }
 }

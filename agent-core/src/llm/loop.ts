@@ -109,7 +109,7 @@ export async function runAgentTurn(
   ];
 
   // Prepare system prompt with dynamic values
-  const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const currentDate = new Date().toISOString().split('T')[0] ?? ''; // YYYY-MM-DD
   const finalSystemPrompt = systemPrompt
     .replace(/\{\{TIMEZONE\}\}/g, businessTimezone)
     .replace(/\{\{CURRENT_DATE\}\}/g, currentDate);
