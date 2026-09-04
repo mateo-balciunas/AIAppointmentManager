@@ -1,6 +1,7 @@
 import { config } from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { loadConversationHistory, saveConversationHistory } from './persistence/supabase.js';
 
 // Load .env from project root (one level up from agent-core/)
 const __filename = fileURLToPath(import.meta.url);
@@ -12,12 +13,6 @@ import { runAgentTurn } from './llm/loop.js';
 import type { CanonicalMessage } from './llm/port.js';
 
 const PORT = parseInt(process.env.PORT ?? '8080', 10);
-
-/**
- * In-memory conversations storage (temporary, TODO replace with supabase)
- * Key: conversation_id, Value: message history
- */
-const conversationStore = new Map<string, CanonicalMessage[]>();
 
 /**
  * Parse JSON body from request
@@ -79,15 +74,20 @@ async function handleAgentTurn(req: IncomingMessage, res: ServerResponse): Promi
       return;
     }
 
-    // Get conversation history (in-memory)
-    const conversationHistory = conversationStore.get(conversation_id) || [];
+    // Get conversation history from Supabase
+    const conversationHistory = await loadConversationHistory(conversation_id);
+
+    // Configuration for agent
+    const config = {
+      maxIterations: parseInt(process.env.MAX_TOOL_ITERATIONS ?? '6', 10),
+      businessTimezone: process.env.BUSINESS_TIMEZONE ?? 'UTC',
+    };
 
     // Run agent turn
-    const result = await runAgentTurn(message, conversationHistory);
+    const result = await runAgentTurn(message, conversationHistory, config);
 
-    // Update conversation history in memory
-    conversationStore.set(conversation_id, result.messageHistory);
-
+    // Save updated conversation history to Supabase
+    await saveConversationHistory(conversation_id, result.messageHistory);
     // Return response
     sendJson(res, 200, {
       conversation_id,
