@@ -1,6 +1,9 @@
 import type { Tool, ToolSpec } from "./port.js";
 import { CheckAvailabilityTool } from "./check-availability.js";
 import { BookAppointmentTool } from "./book-appointment.js";
+import { ListAppointmentsTool } from "./list-appointments.js";
+import { CancelAppointmentTool } from "./cancel-appointment.js";
+import { ModifyAppointmentTool } from "./modify-appointment.js";
 
 /**
  * Registry of all available tools
@@ -72,8 +75,6 @@ export const toolRegistry = new ToolRegistry();
 //Register all available tools
 toolRegistry.register(new CheckAvailabilityTool());
 toolRegistry.register(new BookAppointmentTool());
-
-//TODO: Add more tools as needed
-// toolRegistry.register(new CancelAppointmentTool());
-// toolRegistry.register(new UpdateAppointmentTool());
-// toolRegistry.register(new ListAppointmentsTool());
+toolRegistry.register(new ListAppointmentsTool());
+toolRegistry.register(new CancelAppointmentTool());
+toolRegistry.register(new ModifyAppointmentTool());
