@@ -116,12 +116,124 @@ export class FakeProvider implements LlmProvider {
           usage: { inputTokens: 50, outputTokens: 25 },
         };
       }
+
+      if (lastToolCallName === 'listAppointments') {
+        // We just got the list of appointments
+        return {
+          message: [
+            {
+              role: 'assistant',
+              blocks: [
+                {
+                  kind: 'text',
+                  text: 'He encontrado tus citas. ¿Qué te gustaría hacer? Puedo ayudarte a cancelar o modificar alguna cita si lo necesitas.',
+                },
+              ],
+            },
+          ],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 50, outputTokens: 30 },
+        };
+      }
+
+      if (lastToolCallName === 'cancelAppointment') {
+        // We just cancelled an appointment
+        return {
+          message: [
+            {
+              role: 'assistant',
+              blocks: [
+                {
+                  kind: 'text',
+                  text: '✅ Tu cita ha sido cancelada exitosamente.',
+                },
+              ],
+            },
+          ],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 50, outputTokens: 20 },
+        };
+      }
+
+      if (lastToolCallName === 'modifyAppointment') {
+        // We just modified an appointment
+        return {
+          message: [
+            {
+              role: 'assistant',
+              blocks: [
+                {
+                  kind: 'text',
+                  text: '✅ Tu cita ha sido modificada exitosamente. La cita anterior fue cancelada y se creó una nueva.',
+                },
+              ],
+            },
+          ],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 50, outputTokens: 30 },
+        };
+      }
     }
 
     // Calculate tomorrow's date dynamically
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowStr = tomorrow.toISOString().split('T')[0]; // YYYY-MM-DD
+
+    // Extract phone number if present
+    const phoneMatch = userText.match(/\+?\d{10,15}/);
+    const clientPhone = phoneMatch ? phoneMatch[0] : '+34612345678';
+
+    // Check for list appointments request
+    if (userText.includes('ver mis citas') || userText.includes('mis citas') || userText.includes('listar citas') || userText.includes('mis reservas')) {
+      return this.createToolCallResponse(
+        'listAppointments',
+        {
+          client_phone: clientPhone,
+          status: 'confirmed',
+        },
+        'call_fake_list_001'
+      );
+    }
+
+    // Check for cancel appointment request
+    if (userText.includes('cancelar') && (userText.includes('cita') || userText.includes('reserva'))) {
+      // For fake provider, we need an appointment_id - in reality, listAppointments would be called first
+      return {
+        message: [
+          {
+            role: 'assistant',
+            blocks: [
+              {
+                kind: 'text',
+                text: 'Para cancelar tu cita, primero necesito ver tus citas. Déjame consultarlas.',
+              },
+            ],
+          },
+        ],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 30, outputTokens: 20 },
+      };
+    }
+
+    // Check for modify appointment request
+    if (userText.includes('modificar') || userText.includes('cambiar') && (userText.includes('cita') || userText.includes('reserva'))) {
+      return {
+        message: [
+          {
+            role: 'assistant',
+            blocks: [
+              {
+                kind: 'text',
+                text: 'Para modificar tu cita, primero necesito ver tus citas actuales y luego consultaré la nueva disponibilidad.',
+              },
+            ],
+          },
+        ],
+        stopReason: 'end_turn',
+        usage: { inputTokens: 30, outputTokens: 25 },
+      };
+    }
 
     // Simple keyword-based logic for initial requests
     if (userText.includes('disponibilidad') || userText.includes('horario') || userText.includes('mañana')) {
