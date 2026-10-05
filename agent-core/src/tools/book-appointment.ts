@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Tool, ToolExecutionResult } from './port.js';
 import { getSupabaseClient, zodSchemaToJsonSchema, formatSupabaseError } from './helpers.js';
+import { createCalendarEvent } from '../google-calendar/sync.js';
 
 /**
  * Zod schema for input arguments for the bookAppointment tool
@@ -88,17 +89,54 @@ IMPORTANT:
       // Extract the first row (fn_book_appointment_v2 returns a single row)
       const appointment = Array.isArray(data) ? data[0] : data;
 
+      // Prepare the result
+      const bookingResult: BookAppointmentOutput = {
+        appointment_id: appointment.appointment_id,
+        start_time: appointment.start_time,
+        end_time: appointment.end_time,
+        service_name: appointment.service_name,
+        professional_name: appointment.professional_name,
+        client_name: appointment.client_name,
+        client_phone: appointment.client_phone,
+      };
+
+      // Try to sync with Google Calendar
+      const calendarResult = await createCalendarEvent({
+        summary: `${bookingResult.service_name} - ${bookingResult.client_name}`,
+        description: `Cliente: ${bookingResult.client_name}\nTeléfono: ${bookingResult.client_phone}\nServicio: ${bookingResult.service_name}\nProfesional: ${bookingResult.professional_name}`,
+        startTime: bookingResult.start_time,
+        endTime: bookingResult.end_time,
+      });
+
+      if (calendarResult.success && calendarResult.eventId) {
+        // Update the appointment in Supabase with the google_event_id
+        await supabase
+          .from('appointments')
+          .update({
+            google_event_id: calendarResult.eventId,
+            google_sync_status: 'synced',
+            google_synced_at: new Date().toISOString(),
+          })
+          .eq('id', bookingResult.appointment_id);
+        
+        console.log(`[bookAppointment] Successfully synced to Google Calendar: ${calendarResult.eventId}`);
+      } else {
+        // Failed attempt but booking is still successful
+        console.error('[bookAppointment] Google Calendar sync failed:', calendarResult.error);
+        await supabase
+          .from('appointments')
+          .update({
+            google_sync_status: 'failed',
+            google_sync_error: calendarResult.error,
+            google_sync_attempts: 1,
+          })
+          .eq('id', bookingResult.appointment_id);
+      }
+
+      // Return success regardless of Google Calendar sync status
       return {
         success: true,
-        result: {
-          appointment_id: appointment.appointment_id,
-          start_time: appointment.start_time,
-          end_time: appointment.end_time,
-          service_name: appointment.service_name,
-          professional_name: appointment.professional_name,
-          client_name: appointment.client_name,
-          client_phone: appointment.client_phone,
-        },
+        result: bookingResult,
       };
     } catch (err) {
       return {
