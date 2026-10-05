@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Tool, ToolExecutionResult } from './port.js';
 import { getSupabaseClient, zodSchemaToJsonSchema, formatSupabaseError } from './helpers.js';
+import { deleteCalendarEvent } from '../google-calendar/sync.js'; 
 
 /**
  * Zod schema for input arguments
@@ -66,6 +67,23 @@ Always confirm with the user which appointment they want to cancel.`;
           success: false,
           error: result.error || 'Unknown error from database',
         };
+      }
+
+      // Si la cancelación fue exitosa, eliminar de Google Calendar
+      const { data: appointment } = await supabase
+        .from('appointments')
+        .select('google_event_id')
+        .eq('id', input.appointment_id)
+        .single();
+
+      if (appointment?.google_event_id) {
+        const calendarResult = await deleteCalendarEvent(appointment.google_event_id);
+
+        if (!calendarResult.success) {
+          console.error('[cancelAppointment] Failed to delete from Google Calendar:', calendarResult.error);
+        } else {
+          console.log(`[cancelAppointment] Successfully deleted from Google Calendar: ${appointment.google_event_id}`);
+        }
       }
 
       return {
