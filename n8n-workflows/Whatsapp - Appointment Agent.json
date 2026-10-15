@@ -1,0 +1,232 @@
+{
+  "name": "Whatsapp - Appointment Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "multipleMethods": true,
+        "path": "whatsapp",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        -16
+      ],
+      "id": "0448b8b6-bc35-4555-ac1a-e33f0db5e4e8",
+      "name": "Webhook",
+      "webhookId": "9bdee87a-029c-4a4d-ade1-586853accfe4"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f3463dfb-ca12-4a27-b2c1-9d2ed6b6f0c3",
+              "leftValue": "=={{ $('Function').item.json.verification }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        -16
+      ],
+      "id": "d2f3e00c-2754-4553-94a5-5487f3c42d3f",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract data from webhook\nconst body = $input.item.json.body;\nconst query = $input.item.json.query;\n\n// Handle Meta Webhook verification (GET request)\nif (query && query['hub.mode'] === 'subscribe') {\n  const verifyToken = query['hub.verify_token'];\n  const challenge = query['hub.challenge'];\n\n  // Verify token must match\n  if (verifyToken === 'appointment_manager_verify_2026') {\n    return {\n      json: {\n        verification: true,\n        challenge: challenge\n      }\n    };\n  } else {\n    throw new Error('Invalid verify token');\n  }\n}\n\n// Verify if it's a text message (POST request)\nif (body && body.entry && body.entry[0].changes && body.entry[0].changes[0].value.messages) {\n  const message = body.entry[0].changes[0].value.messages[0];\n  const contact = body.entry[0].changes[0].value.contacts[0];\n\n  // Extract information\n  const phoneNumber = message.from;\n  const messageText =message.text?.body || '';\n  const messageId = message.id;\n  const contactName = contact.profile?.name || 'Usuario';\n\n\n  // Prepare payload for agent-core\n  return {\n    json: {\n      conversation_id: `whatsapp_${phoneNumber}`,\n      message: messageText,\n      metadata: {\n        channel: 'whatsapp',\n        phone_number: phoneNumber,\n        contact_name: contactName,\n        message_id: messageId,\n        timestamp: message.timestamp\n      }\n    }\n  };\n}\n\n// Unsupported message type\nreturn {\n  json: {\n    error: 'Unsupported message type'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        -16
+      ],
+      "id": "923d5112-2b07-4058-976e-1740fee45893",
+      "name": "Function"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.challenge }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        672,
+        -112
+      ],
+      "id": "01bb7cb9-43b9-404e-853a-596230f87dd2",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v21.0/1411805022009362/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"={{ $('Function').item.json.metadata.phone_number }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"={{ $('HTTP Request').item.json.message }}\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        80
+      ],
+      "id": "def705c6-fad5-4627-8cb0-af0244d54986",
+      "name": "HTTP Request1",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "jbxEINUKfOiYmQ3e",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"status\": \"success\"\n}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1120,
+        80
+      ],
+      "id": "c2fcacba-bbdf-4750-9185-83d160bbcaf3",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8080/v1/agent/turn",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"conversation_id\": \"={{ $json.conversation_id }}\",\n  \"message\": \"={{ $json.message }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        80
+      ],
+      "id": "f7f1cc72-90d6-435a-902e-a127bcd12ce7",
+      "name": "agent-core"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Function",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Function",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Function": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "agent-core",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "agent-core": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "6291a150-85ed-4a13-be2f-5612fc74d744",
+  "meta": {
+    "instanceId": "b4ab7e7df3839ed5582dd5d50c3fab9734bd456cf32d2c6812355fb91516630f"
+  },
+  "nodeGroups": [],
+  "id": "5eT61tUQ3UtODp5F",
+  "tags": []
+}
