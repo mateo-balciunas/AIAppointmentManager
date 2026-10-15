@@ -1,0 +1,2 @@
+{"__type":"$$EventMessageAudit","id":"25249837-d1cf-4446-8a0f-64c1214bda03","ts":"2026-10-15T18:10:00.299+02:00","eventName":"n8n.audit.workflow.activated","message":"n8n.audit.workflow.activated","payload":{"workflowId":"5eT61tUQ3UtODp5F","workflowName":"Whatsapp - Appointment Agent","activeVersionId":"6291a150-85ed-4a13-be2f-5612fc74d744","activationMode":"init"}}
+{"__type":"$$EventMessageConfirm","confirm":"25249837-d1cf-4446-8a0f-64c1214bda03","ts":"2026-10-15T18:10:00.299+02:00","source":{"id":"0","name":"eventBus"}}

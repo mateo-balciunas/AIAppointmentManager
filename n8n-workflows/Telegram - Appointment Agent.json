@@ -1,0 +1,133 @@
+{
+  "name": "Telegram - Appointment Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "9d9a3968-13a3-4655-a2f7-dcf2f22f88f6",
+      "name": "Telegram Trigger",
+      "webhookId": "e81e8ba7-e4a7-46f7-9fb2-b4e7c33f7d34",
+      "credentials": {
+        "telegramApi": {
+          "id": "ER1NDGv1rZWKzeEx",
+          "name": "Telegram Bot - Appointment Manager"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract data from Telegram Message\nconst message = $input.item.json.message;\n\n// Extract information\nconst chatId = message.chat.id;\nconst messageText = message.text || '';\nconst userId = message.from.id;\nconst userName = message.from.first_name || 'Usuario';\n\n// Prepare payload for agent-core\nreturn {\n  json: {\n    conversation_id: `telegram_${chatId}`,\n    message: messageText,\n    metadata: {\n      channel: 'telegram',\n      chat_id: chatId,\n      user_id: userId,\n      user_name: userName,\n      message_id: message.message_id\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "ca3aeda2-94d5-4a53-b66b-cd1cd0faf78b",
+      "name": "Function"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8080/v1/agent/turn",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"conversation_id\": \"={{ $json.conversation_id }}\",\n  \"message\": \"{{ $json.message }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        416,
+        0
+      ],
+      "id": "0fb26c04-bbe3-4f9a-aba5-61a475adfa03",
+      "name": "agent-core"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Function').item.json.metadata.chat_id }}",
+        "text": "={{ $('agent-core').item.json.message }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "bdd66962-9140-4d4b-a803-b0166d341e4d",
+      "name": "Send a text message",
+      "webhookId": "4c29c833-ba16-4ae2-ae40-cf772462e601",
+      "credentials": {
+        "telegramApi": {
+          "id": "ER1NDGv1rZWKzeEx",
+          "name": "Telegram Bot - Appointment Manager"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Function",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Function": {
+      "main": [
+        [
+          {
+            "node": "agent-core",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "agent-core": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "998d2e5b-84c2-4d47-bfa9-cfbe17f6ee44",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b4ab7e7df3839ed5582dd5d50c3fab9734bd456cf32d2c6812355fb91516630f"
+  },
+  "nodeGroups": [],
+  "id": "am7GO2NWkJfLalEH",
+  "tags": []
+}
